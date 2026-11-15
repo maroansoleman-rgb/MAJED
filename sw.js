@@ -1,16 +1,33 @@
-const V='shahn-v3';
-const STATIC=['index.html','manifest.json','icon-192.png','icon-512.png'];
-const keyOf=u=>{const x=new URL(u);const n=x.pathname.split('/').pop()||'index.html';return STATIC.includes(n)?new Request(x.origin+x.pathname.replace(/[^/]*$/,'')+n):null};
-self.addEventListener('install',e=>e.waitUntil(caches.open(V).then(c=>Promise.all(STATIC.map(f=>c.add(f).catch(()=>{})))).then(()=>self.skipWaiting())));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>clients.claim())));
+const V='shahn-v4';
+const SCOPE=new URL(self.registration.scope);
+const FILES=['index.html','manifest.json','icon-192.png','icon-512.png'];
+const PATHS=new Set(FILES.map(f=>new URL(f,SCOPE).pathname).concat([SCOPE.pathname]));
+const INDEX=new URL('index.html',SCOPE).href;
+const keyOf=u=>{
+ const x=new URL(u);
+ if(x.origin!==SCOPE.origin||!PATHS.has(x.pathname))return null;
+ return new Request(x.pathname===SCOPE.pathname?INDEX:x.origin+x.pathname);
+};
+self.addEventListener('install',e=>e.waitUntil(
+ caches.open(V).then(c=>c.addAll(FILES.map(f=>new URL(f,SCOPE).href))).then(()=>self.skipWaiting())
+));
+self.addEventListener('activate',e=>e.waitUntil(
+ caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>clients.claim())
+));
 self.addEventListener('fetch',e=>{
  const r=e.request;
- if(r.method!=='GET'||!r.url.startsWith(location.origin))return;
+ if(r.method!=='GET')return;
  const key=keyOf(r.url);
  if(!key)return;
  e.respondWith(fetch(r).then(res=>{
   const cc=(res.headers.get('cache-control')||'').toLowerCase();
-  if(res.ok&&res.type==='basic'&&!cc.includes('no-store')){const copy=res.clone();e.waitUntil(caches.open(V).then(h=>h.put(key,copy)))}
+  if(res.ok&&res.type==='basic'&&!cc.includes('no-store')){
+   const copy=res.clone();
+   e.waitUntil(caches.open(V).then(c=>c.put(key,copy)));
+  }
   return res;
- }).catch(()=>caches.match(key)));
+ }).catch(async()=>{
+  const c=await caches.open(V);
+  return (await c.match(key))||Response.error();
+ }));
 });
