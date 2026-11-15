@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.maroansoleman_rgb.twa",
+        "sha256_cert_fingerprints": ["E8:5E:34:E7:59:E6:C1:C5:05:E0:20:91:E3:3E:26:6B:33:D1:57:D9:DB:B8:60:7B:E8:A9:09:7C:67:09:E4:04"]
+      }
+    }]
