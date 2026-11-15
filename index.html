@@ -74,31 +74,31 @@ const sb=supabase.createClient(SB_URL,SB_KEY);let sess=null,lastP=-1;
 const TL={units:'وحدات',bill:'فاتورة',pkg:'باقة',adsl:'ADSL',util:'فاتورة'},fmt=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
 let S={mode:'user',tab:'home',at:'dash',cur:0,users:[],orders:[],deps:[],stmt:[],net:{syr:true,mtn:true},ticker:'',prices:{syr:[0,0,0],mtn:[0,0,0]},cost:{syr:0,mtn:0},pct:4,den:{syr:[],mtn:[]},pkgs:[],set:{},contacts:[]};
 try{S.contacts=JSON.parse(localStorage.getItem('sc'))||[]}catch(e){}
-let busy=0,failed=null,seen=null;
+let busy=0,failed=null,seen=null,loadSeq=0,polling=0;
 const rpc=async(n,a)=>{const{error}=await sb.rpc(n,a);if(error){toast(error.message);return 0}await load();return 1};
-async function load(){const q=(t,o)=>{const r=sb.from(t).select('*');return o?r.order('id',{ascending:false}).limit(o):r};
+async function load(){const my=++loadSeq;const q=(t,o)=>{const r=sb.from(t).select('*');return o?r.order('id',{ascending:false}).limit(o):r};
 const[p,o,d,st,se]=await Promise.all([q('profiles'),q('orders',300),q('deposits',150),q('stmt',300),q('settings')]);
-if(p.error)return toast('تعذر تحميل البيانات');
+if(my!=loadSeq)return;if(p.error)return toast('تعذر تحميل البيانات');
 const m={};S.users=p.data.map((x,i)=>(m[x.id]=i+1,{id:i+1,uuid:x.id,name:x.name,phone:x.phone,bal:+x.bal,tier:x.tier,limit:+x.lim,ban:x.ban,admin:x.is_admin}));S.cur=m[sess.user.id];
 S.orders=(o.data||[]).map(x=>({id:x.id,uid:m[x.uid],uname:x.uname,net:x.net,num:x.num,type:TL[x.type]||x.type,item:x.item,qty:+x.qty,price:+x.price,profit:+x.profit,status:x.status,reason:x.reason,ref:x.ref,time:fmt(x.created)}));
 S.deps=(d.data||[]).map(x=>({id:x.id,uid:m[x.uid],uname:x.uname,method:x.method,ref:x.ref,amt:+x.amt,status:x.status,time:fmt(x.created)}));
 S.stmt=(st.data||[]).map(x=>({uid:m[x.uid],desc:x.descr,before:+x.bef,amt:+x.amt,after:+x.aft,time:fmt(x.created)}));
 const c={};(se.data||[]).forEach(r=>c[r.k]=r.v);['prices','cost','den','net','pkgs'].forEach(k=>{if(c[k])S[k]=c[k]});
 if(c.pct!=null)S.pct=+c.pct;if(c.ticker!=null)S.ticker=c.ticker;S.set={...(c.cash||{}),...(c.ussd||{})};['syr','mtn'].forEach(n=>{S.den[n]=S.den[n]||[];S.prices[n]=S.prices[n]||[0,0,0];S.cost[n]=S.cost[n]||0})}
-async function saveCfg(){for(const[k,v]of[['prices',S.prices],['cost',S.cost],['pct',S.pct],['den',S.den],['pkgs',S.pkgs],['net',S.net],['ticker',S.ticker]]){const{error}=await sb.rpc('save_setting',{p_k:k,p_v:v});if(error){toast('فشل الحفظ: '+error.message);await load();render();return 0}}return 1}
-async function saveSet(){['scash','mcash','sham','uS','uM'].forEach(k=>S.set[k]=$('#s-'+k).value);const{scash,mcash,sham,harm,uS,uM}=S.set;const a=await sb.rpc('save_setting',{p_k:'cash',p_v:{scash,mcash,sham,harm}}),b=await sb.rpc('save_setting',{p_k:'ussd',p_v:{uS,uM}});const e=a.error||b.error;if(e)return toast('فشل الحفظ: '+e.message);toast('تم حفظ الإعدادات')}
+async function saveCfg(){const{error}=await sb.rpc('save_settings',{p_data:{prices:S.prices,cost:S.cost,pct:S.pct,den:S.den,pkgs:S.pkgs,net:S.net,ticker:S.ticker}});if(error){toast('فشل الحفظ (لم يُحفظ شيء): '+error.message);await load();render();return 0}return 1}
+async function saveSet(){['scash','mcash','sham','uS','uM'].forEach(k=>S.set[k]=$('#s-'+k).value);const{scash,mcash,sham,harm,uS,uM}=S.set;const{error}=await sb.rpc('save_settings',{p_data:{cash:{scash,mcash,sham,harm},ussd:{uS,uM}}});if(error)return toast('فشل الحفظ: '+error.message);toast('تم حفظ الإعدادات')}
 function authUI(){$('#app').innerHTML=`<div class="card" style="margin-top:60px"><h2 style="margin:0">⚡ شحن سوريا</h2><p class="m">${ui.reg?'إنشاء حساب جديد':'تسجيل الدخول'}</p>${ui.reg?'<input id="an" placeholder="الاسم"><input id="aph" inputmode="numeric" placeholder="رقم الموبايل">':''}<input id="ae" type="email" dir="ltr" placeholder="البريد الإلكتروني"><input id="aw" type="password" dir="ltr" placeholder="كلمة السر (6 أحرف على الأقل)"><button class="btn" onclick="auth()">${ui.reg?'إنشاء الحساب':'دخول'}</button><button class="btn g" onclick="ui.reg=!ui.reg;authUI()">${ui.reg?'لدي حساب':'حساب جديد'}</button></div>`}
 async function auth(){const e=$('#ae').value.trim(),w=$('#aw').value;const r=ui.reg?await sb.auth.signUp({email:e,password:w,options:{data:{name:$('#an').value,phone:$('#aph').value}}}):await sb.auth.signInWithPassword({email:e,password:w});
 if(r.error)return toast(r.error.message);if(!r.data.session)return toast('أكّد بريدك الإلكتروني أولاً');sess=r.data.session;await load();render()}
 async function out(){await sb.auth.signOut();sess=null;S.mode='user';render()}
 function notify(t){toast(t);try{navigator.vibrate&&navigator.vibrate(200);beep();if(window.Notification&&Notification.permission=='granted')new Notification('شحن سوريا',{body:t})}catch(e){}}
-async function poll(){try{if(!sess)return;await load();const m0=me(),p=S.orders.filter(o=>o.status=='pending').length;
+async function poll(){if(polling)return;polling=1;try{if(!sess)return;await load();const m0=me(),p=S.orders.filter(o=>o.status=='pending').length;
 if(m0.admin&&lastP>=0&&p>lastP)notify('طلب جديد بانتظار التنفيذ');lastP=p;
 const mine=S.orders.filter(o=>o.uid==m0.id),cur={};mine.forEach(o=>cur[o.id]=o.status);
 if(seen)mine.forEach(o=>{if(seen[o.id]&&seen[o.id]!=o.status){if(o.status=='done')notify('تم تنفيذ طلبك: '+o.item);if(o.status=='rejected')notify('رُفض طلبك وأُعيد المبلغ'+(o.reason?': '+o.reason:''))}});
 seen=cur;document.title=(m0.admin&&p?'('+p+') ':'')+'شحن سوريا';
 const b=$('#bal');if(b&&S.mode=='user')b.textContent=L(m0.bal);
-const a=document.activeElement&&document.activeElement.tagName;if(['INPUT','SELECT','TEXTAREA'].includes(a)||$('#mo').innerHTML||(S.mode=='user'&&S.tab=='home'))return;render()}catch(e){}}
+const a=document.activeElement&&document.activeElement.tagName;if(['INPUT','SELECT','TEXTAREA'].includes(a)||$('#mo').innerHTML||(S.mode=='user'&&S.tab=='home'))return;render()}catch(e){}finally{polling=0}}
 const ui={svc:'units',net:'',num:'',units:0,cat:'إنترنت',q:''};
 const save=()=>{try{localStorage.setItem('sc',JSON.stringify(S.contacts))}catch(e){}};
 const me=()=>S.users.find(u=>u.id==S.cur)||{id:0,name:'',phone:'',bal:0,tier:0,limit:0},usr=id=>S.users.find(u=>u.id==id);
@@ -108,7 +108,9 @@ const mdl=h=>{$('#mo').innerHTML=`<div class="ov" onclick="if(event.target==this
 const beep=()=>{try{const c=new AudioContext(),o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start();o.stop(c.currentTime+.25)}catch(e){}};
 const det=n=>['093','098','099'].includes(n.slice(0,3))?'syr':['094','095','096'].includes(n.slice(0,3))?'mtn':'';
 const pr=(net,u)=>Math.round(u/1000*S.prices[net][me().tier]*100)/100;
-const cp=t=>{try{navigator.clipboard.writeText(t).then(()=>toast('تم النسخ'))}catch(e){toast('انسخ يدوياً: '+t)}};
+async function cp(t){try{await navigator.clipboard.writeText(t);return toast('تم النسخ')}catch(e){}
+try{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';document.body.appendChild(a);a.select();const ok=document.execCommand('copy');a.remove();if(ok)return toast('تم النسخ')}catch(e){}
+mdl(`<b>انسخ الكود يدوياً</b><input dir="ltr" readonly value="${String(t).replace(/"/g,'&quot;')}" onfocus="this.select()"><button class="btn g" onclick="cm()">إغلاق</button>`)}
 function go(m){S.mode=m;S.tab='home';save();render();if(m=='admin'&&S.orders.some(o=>o.status=='pending'))beep()}
 function tab(t){S.tab=t;ui.num='';ui.net='';ui.units=0;save();render()}
 function skin(){document.body.className=S.mode=='user'?ui.net:''}
